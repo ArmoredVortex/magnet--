@@ -30,15 +30,21 @@ int main(int argc, char *argv[])
     file.close();
 
     torrent::TorrentMeta torrentFile = parseTorrentMeta(content);
-    std::cout << torrentFile.announce << std::endl;
-    std::cout << torrentFile.infoHash << std::endl;
-    std::cout << torrentFile.info.length << std::endl;
-    // std::vector<Peer> peers = tracker::getPeers(torrentFile.announce);
+    std::vector<Peer> peers = getPeers(torrentFile);
 
-    // if (peers.empty())
-    // {
-    //     std::cerr << "No peers found." << std::endl;
-    //     return 1;
-    // }
+    if (peers.empty())
+    {
+        std::cerr << "No peers found." << std::endl;
+        return 1;
+    }
+    else
+    {
+        std::cout << peers.size() << " peers found!" << std::endl;
+    }
+    for (const auto &peer : peers)
+    {
+        std::cout << "IP: " << peer.ip << ", Port: " << peer.port << ", Peer ID: " << peer.peer_id << std::endl;
+    }
+
     return 0;
 }

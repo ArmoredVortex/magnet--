@@ -24,3 +24,8 @@ add_executable(
     magnet++
     ${SOURCES}
 )
+
+find_package(OpenSSL REQUIRED)
+
+target_compile_definitions(magnet++ PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+target_link_libraries(magnet++ PRIVATE OpenSSL::SSL OpenSSL::Crypto)

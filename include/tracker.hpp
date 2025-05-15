@@ -1,10 +1,10 @@
 #pragma once
 
-#include <vector>
 #include <string>
-#include "peer.hpp"
+#include <vector>
 
-namespace tracker
-{
-    // std::vector<Peer> getPeers(const std::string &announceUrl);
-}
+#include "peer.hpp"
+#include "torrent.hpp"
+#include "httplib.h"
+
+std::vector<Peer> getPeers(torrent::TorrentMeta torrentFile);
