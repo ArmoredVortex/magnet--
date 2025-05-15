@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <sstream>
 #include <cctype>
+#include <variant>
 
 #include "torrent.hpp"
 #include "bencode.hpp"
@@ -54,19 +55,61 @@ torrent::TorrentMeta parseTorrentMeta(const std::string &content)
 
 std::vector<Peer> parsePeerList(const std::string &content)
 {
-    bencode::data data = bencode::decode(content);
-    const bencode::data peers_node = data["peers"];
-    bencode::list peers_list = std::get<bencode::list>(peers_node);
-
+    bencode::data response = bencode::decode(content);
     std::vector<Peer> peers;
-    for (const auto &peer : peers_list)
+
+    if (!std::holds_alternative<bencode::dict>(response))
     {
-        auto decoded_peer = std::get<bencode::dict>(peer);
-        Peer p;
-        p.ip = std::get<std::string>(decoded_peer["ip"]);
-        p.port = std::get<bencode::integer>(decoded_peer["port"]);
-        p.peer_id = std::get<std::string>(decoded_peer["peer id"]);
-        peers.push_back(p);
+        throw std::runtime_error("Expected top-level bencode dict");
     }
+
+    bencode::dict response_dict = std::get<bencode::dict>(response);
+
+    auto it = response_dict.find("peers");
+    if (it == response_dict.end())
+    {
+        throw std::runtime_error("Missing 'peers' key");
+    }
+
+    const bencode::data &peers_field = it->second;
+
+    if (std::holds_alternative<std::string>(peers_field))
+    {
+        std::cout << "Compact peer list detected!" << std::endl;
+
+        const char *data = content.data();
+        for (int i = 0; i < content.size(); i += 6)
+        {
+            Peer p;
+            p.ip = std::to_string(static_cast<unsigned char>(data[i])) + "." +
+                   std::to_string(static_cast<unsigned char>(data[i + 1])) + "." +
+                   std::to_string(static_cast<unsigned char>(data[i + 2])) + "." +
+                   std::to_string(static_cast<unsigned char>(data[i + 3]));
+            p.port = (static_cast<unsigned char>(data[i + 4]) << 8) |
+                     static_cast<unsigned char>(data[i + 5]);
+            peers.push_back(p);
+        }
+    }
+    else if (std::holds_alternative<std::vector<bencode::data>>(peers_field))
+    {
+        std::cout << "Non-compact peer list detected!" << std::endl;
+
+        // Parse the non-compact peer list
+        bencode::list peers_list = std::get<bencode::list>(peers_field);
+        for (const auto &peer : peers_list)
+        {
+            auto decoded_peer = std::get<bencode::dict>(peer);
+            Peer p;
+            p.ip = std::get<std::string>(decoded_peer["ip"]);
+            p.port = std::get<bencode::integer>(decoded_peer["port"]);
+            // p.peer_id = std::get<std::string>(decoded_peer["peer id"]);
+            peers.push_back(p);
+        }
+    }
+    else
+    {
+        throw std::runtime_error("Unknown format in 'peers' field");
+    }
+
     return peers;
 }

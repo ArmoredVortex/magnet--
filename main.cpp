@@ -30,6 +30,7 @@ int main(int argc, char *argv[])
     file.close();
 
     torrent::TorrentMeta torrentFile = parseTorrentMeta(content);
+
     std::vector<Peer> peers = getPeers(torrentFile);
 
     if (peers.empty())
@@ -39,11 +40,11 @@ int main(int argc, char *argv[])
     }
     else
     {
-        std::cout << peers.size() << " peers found!" << std::endl;
+        std::cout << peers.size() << " peer(s) found!" << std::endl;
     }
     for (const auto &peer : peers)
     {
-        std::cout << "IP: " << peer.ip << ", Port: " << peer.port << ", Peer ID: " << peer.peer_id << std::endl;
+        std::cout << "IP: " << peer.ip << ", Port: " << peer.port << std::endl;
     }
 
     return 0;
