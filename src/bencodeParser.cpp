@@ -46,9 +46,27 @@ torrent::TorrentMeta parseTorrentMeta(const std::string &content)
     s.processBytes(bencoded_info.c_str(), bencoded_info.size());
     uint32_t digest[5];
     s.getDigest(digest);
-    char tmp[48];
-    snprintf(tmp, 45, "%08x%08x%08x%08x%08x", digest[0], digest[1], digest[2], digest[3], digest[4]);
-    torrentFile.infoHash = percentEncodeHexString(std::string(tmp, 40));
+
+    // Convert digest (5 x uint32_t) to raw 20-byte hash (big endian)
+    uint8_t hash[20];
+    for (int i = 0; i < 5; ++i)
+    {
+        hash[i * 4 + 0] = (digest[i] >> 24) & 0xFF;
+        hash[i * 4 + 1] = (digest[i] >> 16) & 0xFF;
+        hash[i * 4 + 2] = (digest[i] >> 8) & 0xFF;
+        hash[i * 4 + 3] = (digest[i]) & 0xFF;
+    }
+
+    // Set raw infohash
+    torrentFile.infoHashRaw = std::string(reinterpret_cast<const char *>(hash), 20);
+
+    // Percent-encode for tracker URLs
+    std::ostringstream oss;
+    for (int i = 0; i < 20; ++i)
+    {
+        oss << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+    }
+    torrentFile.infoHash = oss.str();
 
     return torrentFile;
 }
@@ -77,16 +95,21 @@ std::vector<Peer> parsePeerList(const std::string &content)
     {
         std::cout << "Compact peer list detected!" << std::endl;
 
-        const char *data = content.data();
-        for (int i = 0; i < content.size(); i += 6)
+        const std::string &peer_bytes = std::get<std::string>(peers_field);
+        if (peer_bytes.size() % 6 != 0)
+        {
+            throw std::runtime_error("Compact peer list size is not a multiple of 6");
+        }
+
+        for (size_t i = 0; i < peer_bytes.size(); i += 6)
         {
             Peer p;
-            p.ip = std::to_string(static_cast<unsigned char>(data[i])) + "." +
-                   std::to_string(static_cast<unsigned char>(data[i + 1])) + "." +
-                   std::to_string(static_cast<unsigned char>(data[i + 2])) + "." +
-                   std::to_string(static_cast<unsigned char>(data[i + 3]));
-            p.port = (static_cast<unsigned char>(data[i + 4]) << 8) |
-                     static_cast<unsigned char>(data[i + 5]);
+            p.ip = std::to_string(static_cast<unsigned char>(peer_bytes[i])) + "." +
+                   std::to_string(static_cast<unsigned char>(peer_bytes[i + 1])) + "." +
+                   std::to_string(static_cast<unsigned char>(peer_bytes[i + 2])) + "." +
+                   std::to_string(static_cast<unsigned char>(peer_bytes[i + 3]));
+            p.port = (static_cast<unsigned char>(peer_bytes[i + 4]) << 8) |
+                     static_cast<unsigned char>(peer_bytes[i + 5]);
             peers.push_back(p);
         }
     }
@@ -94,7 +117,6 @@ std::vector<Peer> parsePeerList(const std::string &content)
     {
         std::cout << "Non-compact peer list detected!" << std::endl;
 
-        // Parse the non-compact peer list
         bencode::list peers_list = std::get<bencode::list>(peers_field);
         for (const auto &peer : peers_list)
         {
@@ -102,7 +124,7 @@ std::vector<Peer> parsePeerList(const std::string &content)
             Peer p;
             p.ip = std::get<std::string>(decoded_peer["ip"]);
             p.port = std::get<bencode::integer>(decoded_peer["port"]);
-            // p.peer_id = std::get<std::string>(decoded_peer["peer id"]);
+            // p.peer_id = std::get<std::string>(decoded_peer["peer id"]); // optional
             peers.push_back(p);
         }
     }

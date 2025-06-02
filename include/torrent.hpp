@@ -18,5 +18,6 @@ namespace torrent
         std::string announce;
         infoStruct info;
         std::string infoHash;
+        std::string infoHashRaw;
     };
 }

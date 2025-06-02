@@ -31,6 +31,8 @@ int main(int argc, char *argv[])
 
     torrent::TorrentMeta torrentFile = parseTorrentMeta(content);
 
+    // std::cout << torrentFile.infoHash << std::endl;
+
     std::vector<Peer> peers = getPeers(torrentFile);
 
     if (peers.empty())
@@ -42,9 +44,23 @@ int main(int argc, char *argv[])
     {
         std::cout << peers.size() << " peer(s) found!" << std::endl;
     }
+
+    // for (const auto &peer : peers)
+    // {
+    //     std::cout << "Peer IP: " << peer.ip << ", Port: " << peer.port << std::endl;
+    // }
+
     for (const auto &peer : peers)
     {
-        std::cout << "IP: " << peer.ip << ", Port: " << peer.port << std::endl;
+        std::cout << "Trying " << peer.ip << ":" << peer.port << std::endl;
+        if (connectAndHandshake(peer, torrentFile.infoHashRaw))
+        {
+            std::cout << "\033[32mConnected and handshake successful with \033[0m" << peer.ip << std::endl;
+        }
+        else
+        {
+            std::cout << "Failed to connect/handshake with " << peer.ip << std::endl;
+        }
     }
 
     return 0;
