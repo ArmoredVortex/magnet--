@@ -14,6 +14,7 @@
 #include <bitset>
 #include <sys/poll.h>
 #include <limits>
+#include <optional>
 
 #include "peer.hpp"
 #include "torrent.hpp"
@@ -244,7 +245,7 @@ bool validateHandshake(const std::string &response, const std::string &expectedI
     return true;
 }
 
-bool connectAndHandshake(const Peer &peer, const std::string &infoHashRaw)
+std::optional<int> connectAndHandshake(const Peer &peer, const std::string &infoHashRaw)
 {
     try
     {
@@ -262,17 +263,98 @@ bool connectAndHandshake(const Peer &peer, const std::string &infoHashRaw)
         {
             std::cerr << "Handshake validation failed for " << peer.ip << std::endl;
             close(sock);
-            return false;
+            return std::nullopt;
         }
 
-        // Handshake successful, you can proceed to next steps here or return sock
-        // For now just close the socket
-        close(sock);
-        return true;
+        return sock; // leave socket open for further use
     }
     catch (const std::exception &e)
     {
         std::cerr << "Error connecting/handshaking with " << peer.ip << ":" << peer.port << " - " << e.what() << '\n';
-        return false;
+        return std::nullopt;
     }
+}
+
+void sendInterested(int sockfd)
+{
+    uint32_t len = htonl(1); // message length
+    uint8_t id = 2;          // 'interested' message ID
+
+    std::vector<uint8_t> msg(5);
+    memcpy(msg.data(), &len, 4);
+    msg[4] = id;
+
+    send(sockfd, msg.data(), 5, 0);
+}
+
+bool waitForUnchoke(int sockfd)
+{
+    while (true)
+    {
+        uint32_t len;
+        if (recv(sockfd, &len, 4, MSG_WAITALL) != 4)
+            return false;
+        len = ntohl(len);
+        if (len == 0)
+            continue; // keep-alive
+
+        uint8_t id;
+        if (recv(sockfd, &id, 1, MSG_WAITALL) != 1)
+            return false;
+
+        if (id == 1)
+            return true; // unchoke
+        else
+        {
+            // read and discard the rest of the payload
+            std::vector<uint8_t> payload(len - 1);
+            if (recv(sockfd, payload.data(), len - 1, MSG_WAITALL) != len - 1)
+                return false;
+        }
+    }
+}
+
+void sendRequest(int sockfd, int pieceIndex, int begin, int length)
+{
+    uint32_t len = htonl(13);
+    uint8_t id = 6; // request
+
+    std::vector<uint8_t> msg(17);
+    memcpy(msg.data(), &len, 4);
+    msg[4] = id;
+    *reinterpret_cast<uint32_t *>(&msg[5]) = htonl(pieceIndex);
+    *reinterpret_cast<uint32_t *>(&msg[9]) = htonl(begin);
+    *reinterpret_cast<uint32_t *>(&msg[13]) = htonl(length);
+
+    send(sockfd, msg.data(), 17, 0);
+}
+
+bool receivePiece(int sockfd, std::vector<uint8_t> &outData)
+{
+    uint32_t len;
+    if (recv(sockfd, &len, 4, MSG_WAITALL) != 4)
+        return false;
+    len = ntohl(len);
+
+    uint8_t id;
+    if (recv(sockfd, &id, 1, MSG_WAITALL) != 1)
+        return false;
+    if (id != 7)
+        return false; // not a piece
+
+    // Read piece index, begin offset, and block data
+    uint32_t index, begin;
+    if (recv(sockfd, &index, 4, MSG_WAITALL) != 4)
+        return false;
+    if (recv(sockfd, &begin, 4, MSG_WAITALL) != 4)
+        return false;
+    index = ntohl(index);
+    begin = ntohl(begin);
+
+    int blockLen = len - 9;
+    outData.resize(blockLen);
+    if (recv(sockfd, outData.data(), blockLen, MSG_WAITALL) != blockLen)
+        return false;
+
+    return true;
 }

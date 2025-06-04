@@ -7,6 +7,8 @@
 #include "torrent.hpp"
 #include "tracker.hpp"
 #include "peer.hpp"
+#include "pieceManager.hpp"
+#include "fileWriter.hpp"
 
 int main(int argc, char *argv[])
 {
@@ -31,8 +33,6 @@ int main(int argc, char *argv[])
 
     torrent::TorrentMeta torrentFile = parseTorrentMeta(content);
 
-    // std::cout << torrentFile.infoHash << std::endl;
-
     std::vector<Peer> peers = getPeers(torrentFile);
 
     if (peers.empty())
@@ -50,18 +50,44 @@ int main(int argc, char *argv[])
     //     std::cout << "Peer IP: " << peer.ip << ", Port: " << peer.port << std::endl;
     // }
 
+    std::vector<PeerConnection> activePeers;
     for (const auto &peer : peers)
     {
         std::cout << "Trying " << peer.ip << ":" << peer.port << std::endl;
-        if (connectAndHandshake(peer, torrentFile.infoHashRaw))
+        auto sockOpt = connectAndHandshake(peer, torrentFile.infoHashRaw);
+        if (sockOpt.has_value())
         {
             std::cout << "\033[32mConnected and handshake successful with \033[0m" << peer.ip << std::endl;
+
+            PeerConnection pc;
+            pc.peer = peer;
+            pc.sockfd = sockOpt.value();
+            activePeers.push_back(std::move(pc));
         }
         else
         {
-            std::cout << "Failed to connect/handshake with " << peer.ip << std::endl;
+            std::cerr << "Failed to connect/handshake with " << peer.ip << std::endl;
         }
     }
 
+    if (activePeers.empty())
+    {
+        std::cerr << "No active peers after connection attempts." << std::endl;
+        return 1;
+    }
+    std::cout << activePeers.size() << " active peer(s) after connection attempts." << std::endl;
+
+    PeerConnection &pc = activePeers[0]; // For simplicity, we use the first active peer
+    if (!downloadFullFile(pc, torrentFile))
+    {
+        std::cerr << "Failed to download the file." << std::endl;
+        return 1;
+    }
+    std::cout << "File downloaded successfully!" << std::endl;
+    for (const auto &peer : activePeers)
+    {
+        close(peer.sockfd);
+    }
+    std::cout << "All connections closed." << std::endl;
     return 0;
 }
